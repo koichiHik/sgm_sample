@@ -77,37 +77,10 @@ int main(int argc, char** argv) {
   cv::Mat left = cv::imread(left_path, cv::IMREAD_GRAYSCALE);
   cv::Mat right = cv::imread(right_path, cv::IMREAD_GRAYSCALE);
 
-  cv::GaussianBlur(left, left, cv::Size(3, 3), 3);
-  cv::GaussianBlur(right, right, cv::Size(3, 3), 3);
-  cv::imshow("Left Original", left);
-  cv::imshow("Right Original", right);
-  cv::waitKey(0);
-
   std::cout << "2. Initialize class" << std::endl;
-  Sgbm sgbm(left.rows, left.cols, disp_r, 3, 20);
-
-  std::cout << "3. Census transform" << std::endl;
-  sgbm.census_transform(left, *sgbm.census_l);
-  sgbm.census_transform(right, *sgbm.census_r);
-
-  cv::imshow("Left Census Trans", *sgbm.census_l);
-  cv::imshow("Right Census Trans", *sgbm.census_r);
-  cv::waitKey(0);
-
-  std::cout << "4. Matching Cost Calculation" << std::endl;
-  sgbm.calc_pixel_cost(*sgbm.census_l, *sgbm.census_r, sgbm.pix_cost);
-
-  std::cout << "5. Cost Aggregation" << std::endl;
-  sgbm.aggregate_cost_for_each_scanline(sgbm.pix_cost, sgbm.agg_cost, sgbm.sum_cost);
-
-  std::cout << "6. Disparity Image" << std::endl;
-  sgbm.calc_disparity(sgbm.sum_cost, *sgbm.disp_img);
-
-  std::cout << "7. Visualize Disparity Image" << std::endl;
+  Sgbm sgbm(left.rows, left.cols, disp_r, 3, 20, true, true);
   cv::Mat disp;
-  sgbm.disp_img->convertTo(disp, CV_8U, 256.0/disp_r);
-  cv::imshow("Sgbm Result", disp);
-  cv::waitKey(0);
+  sgbm.compute_disp(left, right, disp);
 
   return 0;
 }

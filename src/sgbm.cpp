@@ -5,7 +5,8 @@
 
 #include "sgbm.h"
 
-Sgbm::Sgbm(int rows, int cols, int d_range, unsigned short p1, unsigned short p2) {
+Sgbm::Sgbm(int rows, int cols, int d_range, unsigned short p1, 
+  unsigned short p2, bool gauss_filt, bool show_res) {
 
   this->rows = rows;
   this->cols = cols;
@@ -16,6 +17,8 @@ Sgbm::Sgbm(int rows, int cols, int d_range, unsigned short p1, unsigned short p2
   this->p1 = p1;
   this->p2 = p2;
   this->scanpath = 8;
+  this->gauss_filt = gauss_filt;
+  this->show_res = show_res;
 
   reset_buffer();
 }
@@ -24,6 +27,55 @@ Sgbm::~Sgbm()
 {
   delete this->census_l;
   delete this->census_r;
+}
+
+
+void Sgbm::compute_disp(cv::Mat &left, cv::Mat &right, cv::Mat &disp)
+{
+
+  // 0. Reset Buffer.
+  reset_buffer();
+
+  if (this->gauss_filt) {
+    cv::GaussianBlur(left, left, cv::Size(3, 3), 3);
+    cv::GaussianBlur(right, right, cv::Size(3, 3), 3);
+  }
+
+  if (this->show_res) {
+    cv::imshow("Left Original", left);
+    cv::imshow("Right Original", right);
+    cv::waitKey(0);
+  }
+
+  // 1. Census Transform.
+  census_transform(left, *this->census_l);
+  census_transform(right, *this->census_r);
+
+  if (this->show_res) {
+    cv::imshow("Census Trans Left", *this->census_l);
+    cv::imshow("Census Trans Right", *this->census_r);
+    cv::waitKey(0);
+  }
+
+  // 2. Calculate Pixel Cost.
+  calc_pixel_cost(*this->census_l, *this->census_r, this->pix_cost);
+  
+  // 3. Aggregate Cost
+  aggregate_cost_for_each_scanline(this->pix_cost, this->agg_cost, this->sum_cost);
+
+  // 4. Create Disparity Image.
+  calc_disparity(this->sum_cost, *this->disp_img);
+
+  // Visualize Disparity Image.
+  disp = *this->disp_img;
+  if (this->show_res) {
+    cv::Mat tmp;
+    disp.convertTo(tmp, CV_8U, 256.0/this->d_range);
+    cv::imshow("Sgbm Result", tmp);
+    cv::waitKey(0);
+  }
+
+  return;
 }
 
 void Sgbm::reset_buffer() 
@@ -59,16 +111,62 @@ void Sgbm::reset_buffer()
   return;
 }
 
-void Sgbm::compute_disp(cv::Mat &left, cv::Mat &right, cv::Mat &disp)
+void Sgbm::census_transform(cv::Mat &img, cv::Mat &census)
 {
+  unsigned char * const img_pnt_st = img.data;
+  unsigned char * const census_pnt_st = census.data;
+
+  for (int row=1; row<rows-1; row++) {
+    for (int col=1; col<cols-1; col++) {
+
+      unsigned char *center_pnt = img_pnt_st + cols*row + col;
+      unsigned char val = 0;
+      for (int drow=-1; drow<=1; drow++) {
+        for (int dcol=-1; dcol<=1; dcol++) {
+          
+          if (drow == 0 && dcol == 0) {
+            continue;
+          }
+          unsigned char tmp = *(center_pnt + dcol + drow*cols);
+          val = (val + (tmp < *center_pnt ? 0 : 1)) << 1;        
+        }
+      }
+      *(census_pnt_st + cols*row + col) = val;
+    }
+  }
   return;
 }
 
-void Sgbm::calc_matching_cost()
-{
-  return;
+void Sgbm::calc_pixel_cost(cv::Mat &census_l, cv::Mat &census_r, cost_3d_array &pix_cost) {
+
+  unsigned char * const census_l_ptr_st = census_l.data;
+  unsigned char * const census_r_ptr_st = census_r.data;
+
+  for (int row = 0; row < this->rows; row++) {
+    for (int col = 0; col < this->cols; col++) {
+      unsigned char val_l = static_cast<unsigned char>(*(census_l_ptr_st + row*cols + col));
+      for (int d = 0; d < this->d_range; d++) {
+        unsigned char val_r = 0;
+        if (col - d >= 0) {
+          val_r = static_cast<unsigned char>(*(census_r_ptr_st + row*cols + col - d));
+        }
+        pix_cost[row][col][d] = calc_hamming_dist(val_l, val_r);
+      }
+    }
+  }
 }
 
+unsigned char Sgbm::calc_hamming_dist(unsigned char val_l, unsigned char val_r) {
+
+  unsigned char dist = 0;
+  unsigned char d = val_l ^ val_r;
+
+  while(d) {
+    d = d & (d - 1);
+    dist++;
+  }
+  return dist;  
+}
 
 unsigned short Sgbm::aggregate_cost(int row, int col, int depth, int path, cost_3d_array &pix_cost, cost_4d_array &agg_cost) {
 
@@ -168,62 +266,5 @@ void Sgbm::calc_disparity(cost_3d_array &sum_cost, cv::Mat &disp_img)
   } 
 
   return;
-}
-
-void Sgbm::census_transform(cv::Mat &img, cv::Mat &census)
-{
-  unsigned char * const img_pnt_st = img.data;
-  unsigned char * const census_pnt_st = census.data;
-
-  for (int row=1; row<rows-1; row++) {
-    for (int col=1; col<cols-1; col++) {
-
-      unsigned char *center_pnt = img_pnt_st + cols*row + col;
-      unsigned char val = 0;
-      for (int drow=-1; drow<=1; drow++) {
-        for (int dcol=-1; dcol<=1; dcol++) {
-          
-          if (drow == 0 && dcol == 0) {
-            continue;
-          }
-          unsigned char tmp = *(center_pnt + dcol + drow*cols);
-          val = (val + (tmp < *center_pnt ? 0 : 1)) << 1;        
-        }
-      }
-      *(census_pnt_st + cols*row + col) = val;
-    }
-  }
-  return;
-}
-
-void Sgbm::calc_pixel_cost(cv::Mat &census_l, cv::Mat &census_r, cost_3d_array &pix_cost) {
-
-  unsigned char * const census_l_ptr_st = census_l.data;
-  unsigned char * const census_r_ptr_st = census_r.data;
-
-  for (int row = 0; row < this->rows; row++) {
-    for (int col = 0; col < this->cols; col++) {
-      unsigned char val_l = static_cast<unsigned char>(*(census_l_ptr_st + row*cols + col));
-      for (int d = 0; d < this->d_range; d++) {
-        unsigned char val_r = 0;
-        if (col - d >= 0) {
-          val_r = static_cast<unsigned char>(*(census_r_ptr_st + row*cols + col - d));
-        }
-        pix_cost[row][col][d] = calc_hamming_dist(val_l, val_r);
-      }
-    }
-  }
-}
-
-unsigned char Sgbm::calc_hamming_dist(unsigned char val_l, unsigned char val_r) {
-
-  unsigned char dist = 0;
-  unsigned char d = val_l ^ val_r;
-
-  while(d) {
-    d = d & (d - 1);
-    dist++;
-  }
-  return dist;  
 }
 

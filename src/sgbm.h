@@ -34,15 +34,14 @@ public:
 class Sgbm {
 
 public:
-  Sgbm(int rows, int cols, int d_range, unsigned short p1, unsigned short p2);
+  Sgbm(int rows, int cols, int d_range, unsigned short p1, 
+  unsigned short p2, bool gauss_filt = false, bool show_res = false);
 
   ~Sgbm();
 
   void reset_buffer();
 
   void compute_disp(cv::Mat &left, cv::Mat &right, cv::Mat &disp);
-
-  void calc_matching_cost();
 
   unsigned short aggregate_cost(int row, int col, int depth, int path, cost_3d_array &pix_cost, cost_4d_array &agg_cost);
 
@@ -58,6 +57,7 @@ public:
 
 public:
 
+  bool gauss_filt, show_res;
   int rows, cols, d_range, scanpath;
   unsigned short p1, p2;
   cv::Mat *census_l, *census_r, *disp_img;
